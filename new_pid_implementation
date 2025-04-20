@@ -1,0 +1,174 @@
+float baseline_PWM = 100;
+
+// ---- Motor Pins ----
+int enA = 4;
+int in1 = 5;
+int in2 = 6;
+
+int enB = 33;
+int in3 = 32;
+int in4 = 31;
+
+// ---- Ultrasonic Sensor Pins ----
+const int trigL = 2;
+const int trigC = 9;
+const int trigR = 10;
+
+const int echoL = 23;
+const int echoC = 28;
+const int echoR = 29;
+
+// ---- PID Variables ----
+int lastError = 0;
+int deltaError = 0;
+const float Kp = 1.351;
+const float Kd = 8;
+
+// ---- Move Forward Function (PD) ----
+void moveForward(float distR, float distL) {
+  float error = distR - distL;
+  deltaError = error - lastError;
+  float derivative = Kd * deltaError;
+
+  float right_PWM = baseline_PWM + Kp * error + derivative;
+  float left_PWM  = baseline_PWM - Kp * error - derivative;
+
+  lastError = error;
+
+  // drive both wheels forward
+  digitalWrite(in1, LOW);
+  digitalWrite(in2, HIGH);
+  digitalWrite(in3, LOW);
+  digitalWrite(in4, HIGH);
+  
+  // send PWM to motors (0–255)
+  right_PWM = constrain(right_PWM, 0, 255);
+  left_PWM  = constrain(left_PWM,  0, 255);
+  analogWrite(enA, right_PWM);
+  analogWrite(enB, left_PWM);
+}
+
+
+void turnLeft(unsigned long duration) {
+  digitalWrite(in1, LOW);
+  digitalWrite(in2, HIGH);
+  analogWrite(enA, baseline_PWM);
+
+  digitalWrite(in3, LOW);
+  digitalWrite(in4, LOW);
+  analogWrite(enB, 0);
+
+  delay(duration);
+}
+
+
+void turnRight(unsigned long duration) {
+  digitalWrite(in3, LOW);
+  digitalWrite(in4, HIGH);
+  analogWrite(enB, baseline_PWM);
+
+  digitalWrite(in1, LOW);
+  digitalWrite(in2, LOW);
+  analogWrite(enA, 0);
+
+  delay(duration);
+}
+
+void Stop(unsigned long duration) {
+  digitalWrite(in3, LOW);
+  digitalWrite(in4, LOW);
+  analogWrite(enB, 0);
+
+  digitalWrite(in1, LOW);
+  digitalWrite(in2, LOW);
+  analogWrite(enA, 0);
+
+  delay(duration);
+}
+
+//void slowDown(unsigned long duration) {
+//  int current_PWM = baseline_PWM;
+//  int steps = 10; // number of times to decrease PWM
+//  unsigned long stepDelay = duration / steps; // delay between steps
+//
+//  for (int i = 0; i < steps; i++) {
+//    current_PWM -= baseline_PWM / steps;
+//    current_PWM = constrain(current_PWM, 0, 255);
+//
+//    digitalWrite(in1, LOW);
+//    digitalWrite(in2, HIGH);
+//    analogWrite(enA, current_PWM);
+//
+//    digitalWrite(in3, LOW);
+//    digitalWrite(in4, HIGH);
+//    analogWrite(enB, current_PWM);
+//
+//    delay(stepDelay);
+//  }
+//
+//  // finally stop motors
+//  digitalWrite(in1, LOW);
+//  digitalWrite(in2, LOW);
+//  analogWrite(enA, 0);
+//
+//  digitalWrite(in3, LOW);
+//  digitalWrite(in4, LOW);
+//  analogWrite(enB, 0);
+//}
+
+
+
+
+// ---- Read Distance (cm) ----
+float getDistance(int trigPin, int echoPin) {
+  long duration;
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  duration = pulseIn(echoPin, HIGH, 30000);
+  float distance = duration * 0.034 / 2;
+
+  // treat no‑echo (out of range) as clear space
+  if (distance <= 0 || distance > 100.0) {
+    return 100.0;
+  }
+  return distance;
+}
+
+void setup() {
+  delay(1500);
+  Serial.begin(9600);
+  Serial.println("Starting...");
+
+  pinMode(enA, OUTPUT); pinMode(in1, OUTPUT); pinMode(in2, OUTPUT);
+  pinMode(enB, OUTPUT); pinMode(in3, OUTPUT); pinMode(in4, OUTPUT);
+
+  pinMode(trigL, OUTPUT); pinMode(trigC, OUTPUT); pinMode(trigR, OUTPUT);
+  pinMode(echoL, INPUT);  pinMode(echoC, INPUT);  pinMode(echoR, INPUT);
+}
+
+void loop() {
+  float distL = getDistance(trigL, echoL);
+  float distC = getDistance(trigC, echoC);
+  float distR = getDistance(trigR, echoR);
+
+  Serial.print("L: "); Serial.print(distL);
+  Serial.print("  C: "); Serial.print(distC);
+  Serial.print("  R: "); Serial.println(distR);
+
+  // if obstacle <25cm ahead, turn toward the side with more room
+  if (distC < 40.0) {
+    if (distL > 40) {
+      Stop(200);
+       turnRight(200);
+    } else if (distR > 40) {
+      Stop(200);
+      turnLeft(200);
+    }
+    delay(100);           // small pause before next reading
+  } else {
+    moveForward(distR, distL);
+  }
+}
