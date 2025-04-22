@@ -1,0 +1,119 @@
+float baseline_PWM = 80;  //intitially 100
+
+// ---- Motor Pins ----
+int enA = 4, in1 = 5, in2 = 6;
+int enB = 33, in3 = 32, in4 = 31;
+
+// ---- Ultrasonic Sensor Pins ----
+const int trigL = 2, trigC = 9, trigR = 10;
+const int echoL = 23, echoC = 28, echoR = 29;
+
+// ---- PID Variables ----
+float error = 0;
+float lastError = 0;
+float deltaError = 0;
+const float Kp = 1.343;
+const float Kd = 10;
+ bool isRunning = false;
+
+// ---- Move Forward Function (PD) ----
+void moveForward(float distR, float distL) {
+    error = distR - distL;
+    error = constrain(error, -35, 35);
+    deltaError = error - lastError;
+    float derivative = Kd * deltaError;
+
+    Serial.print("Error: ");
+    Serial.println(error);
+
+
+    float right_PWM = baseline_PWM + Kp * error + derivative;
+    float left_PWM  = baseline_PWM - Kp * error - derivative;
+
+    lastError = error;
+
+    // drive both wheels forward
+    digitalWrite(in1, LOW);
+    digitalWrite(in2, HIGH);
+    digitalWrite(in3, LOW);
+    digitalWrite(in4, HIGH);
+
+    // apply PWM limits
+    right_PWM = constrain(right_PWM, 0, 200);
+    left_PWM  = constrain(left_PWM,  0, 200);
+    analogWrite(enA, right_PWM);
+    analogWrite(enB, left_PWM);
+}
+float getDistance(int trigPin, int echoPin) {
+    long duration;
+    digitalWrite(trigPin, LOW);
+    delayMicroseconds(2);
+    digitalWrite(trigPin, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(trigPin, LOW);
+
+    duration = pulseIn(echoPin, HIGH, 30000);
+    float distance = duration * 0.034 / 2;
+    if (distance <= 0 || distance > 100.0) return 100.0;
+    return distance;
+}
+
+ void Stop() {
+ digitalWrite(in1, LOW);
+ digitalWrite(in2, LOW);
+ digitalWrite(in3, LOW);
+ digitalWrite(in4, LOW);
+ analogWrite(enA, 0);
+ analogWrite(enB, 0);
+ }
+
+
+
+void setup() {
+    delay(1500);
+    Serial.begin(9600);
+    Serial.println("Starting...");
+
+    pinMode(enA, OUTPUT);
+    pinMode(in1, OUTPUT);
+    pinMode(in2, OUTPUT);
+    pinMode(enB, OUTPUT);
+    pinMode(in3, OUTPUT);
+    pinMode(in4, OUTPUT);
+
+    pinMode(trigL, OUTPUT);
+    pinMode(trigC, OUTPUT);
+    pinMode(trigR, OUTPUT);
+    pinMode(echoL, INPUT);
+    pinMode(echoC, INPUT);
+    pinMode(echoR, INPUT);
+}
+
+
+
+void loop() {
+    float distL = getDistance(trigL, echoL);
+    float distC = getDistance(trigC, echoC);
+    float distR = getDistance(trigR, echoR);
+
+//    Serial.print("L: "); Serial.print(distL);
+//    Serial.print("  C: "); Serial.print(distC);
+//    Serial.print("  R: "); Serial.println(distR);
+    if (Serial.available() > 0) {
+       char received = Serial.read();
+       Serial.println(received);
+       if (received == 'A') {
+       isRunning = !isRunning;
+       }
+      
+       }
+
+    
+//    moveForward(distR, distL);
+ if (isRunning) {
+moveForward(distR, distL);
+ } else {
+ Stop();
+ }
+     
+}
