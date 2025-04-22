@@ -1,219 +1,154 @@
-// Ultrasonic Sensor Pins
-const int trigL = 8;
-const int trigC = 9;
-const int trigR = 10;
+// ---- BASELINE SETTINGS ----
+float baseline_PWM = 80;  // Base speed for motors (was initially 100)
 
-const int echoL = 27;
-const int echoC = 28;
-const int echoR = 29;
+// ---- Motor Pins ----
+int enA = 4, in1 = 5, in2 = 6;         // Motor A: PWM and direction control pins
+int enB = 33, in3 = 32, in4 = 31;      // Motor B: PWM and direction control pins
 
-// Motor A (Right Motor) - TivaC and L298N connections
-int enA = 4;   // ENABLE pin (PB1) for Motor A to provide PWM 
-int in1 = 5;   // IN1 pin (PE4) for Motor A direction
-int in2 = 6;   // IN2 pin (PE5) for Motor A direction
+// ---- Ultrasonic Sensor Pins ----
+const int trigL = 2, trigC = 9, trigR = 10;    // Trigger pins (Left, Center, Right)
+const int echoL = 23, echoC = 28, echoR = 29;  // Echo pins (Left, Center, Right)
 
-// Motor B (Left Motor)
-int enB = 14;  // ENABLE pin (PB6) for Motor B to provide PWM 
-int in3 = 13;  // IN1 pin (PA4) for Motor B direction
-int in4 = 12;  // IN2 pin (PA3) for Motor B direction
+// ---- PID Variables ----
+float error = 0;         // Current error between left and right distances
+float lastError = 0;     // Previous error (for derivative calculation)
+float deltaError = 0;    // Change in error
+const float Kp = 1.343;  // Proportional gain constant
+const float Kd = 10;     // Derivative gain constant
+bool isRunning = false;  // Robot movement state (true = moving, false = stopped)
 
-// Define target distances and thresholds
-#define TARGET_DISTANCE 20     // Desired distance from each side wall
-#define FRONT_THRESHOLD 15     // Obstacle threshold for center sensor
-#define TOLERANCE 2            // Allowable error range
 
-void setup() {
-  Serial.begin(9600); // Initialize serial for debugging
-  
-  // Set pin modes for Motor A
-  pinMode(enA, OUTPUT);
-  pinMode(in1, OUTPUT);
-  pinMode(in2, OUTPUT);
+// ---- Function to Move Forward with PD Control ----
+void moveForward(float distR, float distL) {
+    // Calculate error (difference between right and left wall distances)
+    error = distR - distL;
+    
+    // Limit error to prevent sudden sharp corrections
+    error = constrain(error, -35, 35);
 
-  // Set pin modes for Motor B
-  pinMode(enB, OUTPUT);
-  pinMode(in3, OUTPUT);
-  pinMode(in4, OUTPUT);
+    // Calculate change in error
+    deltaError = error - lastError;
 
-  // Turn off motors initially
-  digitalWrite(in1, LOW);
-  digitalWrite(in2, LOW);
-  digitalWrite(in3, LOW);
-  digitalWrite(in4, LOW);
+    // Calculate derivative term
+    float derivative = Kd * deltaError;
 
-  // Set up ultrasonic sensor pins
-  pinMode(trigL, OUTPUT);
-  pinMode(echoL, INPUT);
-  pinMode(trigC, OUTPUT);
-  pinMode(echoC, INPUT);
-  pinMode(trigR, OUTPUT);
-  pinMode(echoR, INPUT);
+    // Debug: Print error to Serial Monitor
+    Serial.print("Error: ");
+    Serial.println(error);
+
+    // Calculate individual motor speeds based on PD correction
+    float right_PWM = baseline_PWM + Kp * error + derivative;
+    float left_PWM  = baseline_PWM - Kp * error - derivative;
+
+    // Update lastError for next iteration
+    lastError = error;
+
+    // Set both motors to move forward
+    digitalWrite(in1, LOW);
+    digitalWrite(in2, HIGH);
+    digitalWrite(in3, LOW);
+    digitalWrite(in4, HIGH);
+
+    // Limit PWM signals to safe range
+    right_PWM = constrain(right_PWM, 0, 200);
+    left_PWM  = constrain(left_PWM, 0, 200);
+
+    // Send PWM signals to motors
+    analogWrite(enA, right_PWM);
+    analogWrite(enB, left_PWM);
 }
 
-int leftDistance() {
-  long durationL;
-  int distanceL;
-  
-  digitalWrite(trigL, LOW);
-  delayMicroseconds(2);
-  digitalWrite(trigL, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(trigL, LOW);
-  
-  durationL = pulseIn(echoL, HIGH);
-  distanceL = durationL * 0.034 / 2;
-  return distanceL;
+
+// ---- Function to Measure Distance using Ultrasonic Sensor ----
+float getDistance(int trigPin, int echoPin) {
+    long duration;
+
+    // Send a 10us HIGH pulse to trigger the ultrasonic sensor
+    digitalWrite(trigPin, LOW);
+    delayMicroseconds(2);
+    digitalWrite(trigPin, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(trigPin, LOW);
+
+    // Read the duration of the HIGH pulse (echo time)
+    duration = pulseIn(echoPin, HIGH, 30000);  // Timeout at 30ms
+
+    // Calculate distance (speed of sound = 0.034 cm/us, divide by 2 for round trip)
+    float distance = duration * 0.034 / 2;
+
+    // If invalid or out of range, set distance to 100 cm
+    if (distance <= 0 || distance > 100.0) return 100.0;
+    return distance;
 }
 
-int centerDistance() {
-  long durationC;
-  int distanceC;
-  
-  digitalWrite(trigC, LOW);
-  delayMicroseconds(2);
-  digitalWrite(trigC, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(trigC, LOW);
-  
-  durationC = pulseIn(echoC, HIGH);
-  distanceC = durationC * 0.034 / 2;
-  return distanceC;
-}
 
-int rightDistance() {
-  long durationR;
-  int distanceR;
-  
-  digitalWrite(trigR, LOW);
-  delayMicroseconds(2);
-  digitalWrite(trigR, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(trigR, LOW);
-  
-  durationR = pulseIn(echoR, HIGH);
-  distanceR = durationR * 0.034 / 2;
-  return distanceR;
-}
-
-void forward() {
-  // Both motors forward
-  digitalWrite(in1, LOW);   // Right motor forward
-  digitalWrite(in2, HIGH);
-  digitalWrite(in3, LOW);   // Left motor forward
-  digitalWrite(in4, HIGH);
-  
-  analogWrite(enA, 230);    // Set speed for right motor
-  analogWrite(enB, 255);    // Set speed for left motor
-}
-
-void backward() {
-  // Both motors backward
-  digitalWrite(in1, HIGH);  // Right motor backward
-  digitalWrite(in2, LOW);
-  digitalWrite(in3, HIGH);  // Left motor backward
-  digitalWrite(in4, LOW);
-  
-  analogWrite(enA, 255);
-  analogWrite(enB, 255);
-}
-
-void leftTurn() {
-  // Right motor forward, Left motor backward (rotate left)
-  digitalWrite(in1, LOW);   // Right motor forward
-  digitalWrite(in2, HIGH);
-  digitalWrite(in3, HIGH);  // Left motor backward
-  digitalWrite(in4, LOW);
-  
-  analogWrite(enA, 255);
-  analogWrite(enB, 255);
-}
-
-void rightTurn() {
-  // Right motor backward, Left motor forward (rotate right)
-  digitalWrite(in1, HIGH);  // Right motor backward
-  digitalWrite(in2, LOW);
-  digitalWrite(in3, LOW);   // Left motor forward
-  digitalWrite(in4, HIGH);
-  
-  analogWrite(enA, 255);
-  analogWrite(enB, 255);
-}
-
+// ---- Function to Stop the Robot ----
 void Stop() {
-  // Stop both motors
-  digitalWrite(in1, LOW);
-  digitalWrite(in2, LOW);
-  digitalWrite(in3, LOW);
-  digitalWrite(in4, LOW);
-  
-  analogWrite(enA, 0);
-  analogWrite(enB, 0);
+    // Stop motor movement by setting motor pins LOW
+    digitalWrite(in1, LOW);
+    digitalWrite(in2, LOW);
+    digitalWrite(in3, LOW);
+    digitalWrite(in4, LOW);
+
+    // Set motor speeds to zero
+    analogWrite(enA, 0);
+    analogWrite(enB, 0);
 }
 
-// Wall-following motion function using our established discrete logic
-void wallFollowMotion() {
-  int distL = leftDistance();
-  int distC = centerDistance();
-  int distR = rightDistance();
 
-  // Print sensor readings for debugging
-  Serial.print("Left Distance: ");
-  Serial.println(distL);
-  Serial.print("Center Distance: ");
-  Serial.println(distC);
-  Serial.print("Right Distance: ");
-  Serial.println(distR);
+// ---- Arduino Setup Function ----
+void setup() {
+    delay(1500);  // Small delay before starting
+    Serial.begin(9600);  // Initialize serial communication
+    Serial.println("Starting...");
 
-  // Obstacle Avoidance: If an object is too close in front (using the center sensor)
-  if (distC < FRONT_THRESHOLD) {
-    Stop();
-    backward();
-    delay(400);  // Reverse for 0.4 seconds
-    // Choose turn direction based on which side has more space:
-    if (distL > distR) {
-      leftTurn();
-    } else {
-      rightTurn();
-    }
-    delay(200);  // Execute turn for 0.2 seconds
-    return;      // Skip further processing in this cycle
-  }
+    // Set motor pins as OUTPUT
+    pinMode(enA, OUTPUT);
+    pinMode(in1, OUTPUT);
+    pinMode(in2, OUTPUT);
+    pinMode(enB, OUTPUT);
+    pinMode(in3, OUTPUT);
+    pinMode(in4, OUTPUT);
 
-  // Side adjustments: Use discrete threshold comparisons (with tolerance)
-  bool adjustLeft = false;
-  bool adjustRight = false;
-  
-  // Left sensor logic:
-  // - Too close to left wall? (reading is less than target minus tolerance) => steer right.
-  // - Too far from left wall? (reading is greater than target plus tolerance) => steer left.
-  if (distL < TARGET_DISTANCE - TOLERANCE) {
-    adjustRight = true;
-  } else if (distL > TARGET_DISTANCE + TOLERANCE) {
-    adjustLeft = true;
-  }
-  
-  // Right sensor logic:
-  // - Too close to right wall? => steer left.
-  // - Too far from right wall? => steer right.
-  if (distR < TARGET_DISTANCE - TOLERANCE) {
-    adjustLeft = true;
-  } else if (distR > TARGET_DISTANCE + TOLERANCE) {
-    adjustRight = true;
-  }
-  
-  // Conflict resolution:
-  // If both adjustments are signaled, we assume the corrections cancel out and go straight.
-  if (adjustLeft && !adjustRight) {
-    leftTurn();
-    delay(100);  // Brief adjustment delay
-  } else if (adjustRight && !adjustLeft) {
-    rightTurn();
-    delay(100);
-  } else {
-    forward();
-  }
+    // Set ultrasonic sensor pins
+    pinMode(trigL, OUTPUT);
+    pinMode(trigC, OUTPUT);
+    pinMode(trigR, OUTPUT);
+    pinMode(echoL, INPUT);
+    pinMode(echoC, INPUT);
+    pinMode(echoR, INPUT);
 }
 
+
+// ---- Arduino Main Loop ----
 void loop() {
-  wallFollowMotion();
+    // Read distances from all three ultrasonic sensors
+    float distL = getDistance(trigL, echoL);
+    float distC = getDistance(trigC, echoC);
+    float distR = getDistance(trigR, echoR);
+
+    // Uncomment these lines if you want to see distance readings
+    /*
+    Serial.print("L: "); Serial.print(distL);
+    Serial.print("  C: "); Serial.print(distC);
+    Serial.print("  R: "); Serial.println(distR);
+    */
+
+    // Check for user input over Serial
+    if (Serial.available() > 0) {
+        char received = Serial.read();
+        Serial.println(received);
+
+        // Toggle robot running state when 'A' is received
+        if (received == 'A') {
+            isRunning = !isRunning;
+        }
+    }
+
+    // Control robot movement based on running state
+    if (isRunning) {
+        moveForward(distR, distL);
+    } else {
+        Stop();
+    }
 }
